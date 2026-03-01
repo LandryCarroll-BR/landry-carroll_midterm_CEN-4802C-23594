@@ -5,9 +5,21 @@ pipeline {
   environment {
     IMAGE_NAME = "springboot-demo"
     CONTAINER_NAME = "springboot-demo"
+    PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
 
   stages {
+     stage('Debug Docker') {
+        steps {
+          sh '''
+            echo "PATH=$PATH"
+            which docker || true
+            docker --version || true
+            docker version || true
+          '''
+        }
+    }
+
     stage('Checkout') {
       steps { checkout scm }
     }
