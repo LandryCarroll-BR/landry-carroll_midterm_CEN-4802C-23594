@@ -41,7 +41,7 @@ pipeline {
           docker rm -f $CONTAINER_NAME || true
 
           # Run the new version
-          docker run -d --name $CONTAINER_NAME -p 8080:8080 $IMAGE_NAME:$IMAGE_TAG
+          docker run -d --name $CONTAINER_NAME -p 9090:8080 $IMAGE_NAME:$IMAGE_TAG
 
           # Show running containers for demo visibility
           docker ps | head -n 20
