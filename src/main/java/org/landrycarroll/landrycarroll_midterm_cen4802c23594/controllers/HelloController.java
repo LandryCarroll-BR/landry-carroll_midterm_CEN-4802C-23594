@@ -9,4 +9,9 @@ public class HelloController {
     public String home() {
         return "Hello landry-carroll_midterm_CEN-4802C-23594!";
     }
+
+    @GetMapping("/greeting")
+    public String greeting(String name) {
+        return "Hello " + name;
+    }
 }
