@@ -8,8 +8,6 @@ pipeline {
     STAGING_CONTAINER_NAME = "springboot-demo-staging"
     MAIN_PORT = "9090"
     STAGING_PORT = "9091"
-    CONTAINER_NAME = ""
-    HOST_PORT = ""
     PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
 
@@ -28,27 +26,6 @@ pipeline {
 
     stage('Checkout') {
       steps { checkout scm }
-    }
-
-    stage('Configure Deployment Target') {
-      steps {
-        script {
-          if (env.BRANCH_NAME == 'staging') {
-            env.CONTAINER_NAME = env.STAGING_CONTAINER_NAME
-            env.HOST_PORT = env.STAGING_PORT
-          } else if (env.BRANCH_NAME == 'main') {
-            env.CONTAINER_NAME = env.MAIN_CONTAINER_NAME
-            env.HOST_PORT = env.MAIN_PORT
-          } else {
-            echo "Branch ${env.BRANCH_NAME} is not configured for deployment. Only 'staging' and 'main' deploy containers."
-          }
-
-          if (env.CONTAINER_NAME?.trim()) {
-            currentBuild.description = "${env.BRANCH_NAME} -> ${env.CONTAINER_NAME}:${env.HOST_PORT}"
-            echo "Deploy target: ${env.CONTAINER_NAME} on port ${env.HOST_PORT}"
-          }
-        }
-      }
     }
 
     stage('Test (JUnit)') {
@@ -85,36 +62,41 @@ pipeline {
       }
     }
 
-    stage('Deploy (Run Container Locally)') {
+    stage('Deploy Staging') {
       when {
-        anyOf {
-          branch 'main'
-          branch 'staging'
-        }
+        branch 'staging'
       }
       steps {
         sh '''
           # Stop/remove existing container if it exists
-          docker rm -f $CONTAINER_NAME || true
+          docker rm -f $STAGING_CONTAINER_NAME || true
 
-          # Run the new version
-          docker run -d --name $CONTAINER_NAME -p $HOST_PORT:8080 $IMAGE_NAME:$IMAGE_TAG
+          # Run the staging version
+          docker run -d --name $STAGING_CONTAINER_NAME -p $STAGING_PORT:8080 $IMAGE_NAME:$IMAGE_TAG
 
           # Show running containers for demo visibility
           docker ps | head -n 20
         '''
+        sh 'docker logs --tail 50 $STAGING_CONTAINER_NAME || true'
       }
     }
-  }
 
-  post {
-    always {
-      script {
-        if (env.CONTAINER_NAME?.trim()) {
-          sh 'docker logs --tail 50 $CONTAINER_NAME || true'
-        } else {
-          echo "No deployment target for branch ${env.BRANCH_NAME}. Skipping container log collection."
-        }
+    stage('Deploy Main') {
+      when {
+        branch 'main'
+      }
+      steps {
+        sh '''
+          # Stop/remove existing container if it exists
+          docker rm -f $MAIN_CONTAINER_NAME || true
+
+          # Run the main version
+          docker run -d --name $MAIN_CONTAINER_NAME -p $MAIN_PORT:8080 $IMAGE_NAME:$IMAGE_TAG
+
+          # Show running containers for demo visibility
+          docker ps | head -n 20
+        '''
+        sh 'docker logs --tail 50 $MAIN_CONTAINER_NAME || true'
       }
     }
   }
