@@ -29,12 +29,6 @@ pipeline {
     }
 
     stage('Test (JUnit)') {
-      when {
-        anyOf {
-          branch 'main'
-          branch 'staging'
-        }
-      }
       steps {
         sh 'chmod +x mvnw || true'
         sh './mvnw -B test'
