@@ -24,4 +24,10 @@ class HelloControllerTest {
         HelloController controller = new HelloController();
         assertEquals("Hello landry", controller.greeting2("landry"));
     }
+
+    @Test
+    void goodbye() {
+       HelloController controller = new HelloController();
+       assertEquals("Goodbye landry", controller.goodbye("landry"));
+    }
 }
