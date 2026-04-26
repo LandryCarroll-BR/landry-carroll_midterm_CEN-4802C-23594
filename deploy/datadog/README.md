@@ -17,6 +17,7 @@ The Agent collects:
 
 - Docker container metrics and live container metadata
 - Container stdout/stderr logs for containers with Datadog log labels
+- Application traces from Java containers on the shared Docker network
 - A production health check against `http://springboot-demo-main-proxy:8080/actuator/health`
 
 ## Datadog UI
@@ -39,6 +40,25 @@ Create these assets in Datadog after the first successful deployment:
   - `max(last_15m):max:ci.performance.http_req_failed_rate{service:springboot-demo,env:ci,branch:main} > 0`
   - `min(last_15m):min:ci.performance.http_reqs_per_second{service:springboot-demo,env:ci,branch:main} < 10.42`
   - Route these monitors to the same notification destination already used for your crash and availability alerts.
+
+## APM
+
+APM is enabled in the app image and activated in deployed containers with these runtime settings:
+
+- `DD_TRACE_ENABLED=true`
+- `DD_AGENT_HOST=springboot-demo-datadog-agent`
+- `DD_TRACE_AGENT_PORT=8126`
+- `DD_SERVICE=springboot-demo`
+- `DD_ENV=staging|prod`
+- `DD_VERSION=<git-sha or stable>`
+- `DD_LOGS_INJECTION=true`
+
+Verification steps in Datadog:
+
+- Open `APM -> Services` and look for `springboot-demo`
+- Filter by `env:staging` or `env:prod`
+- Open one service and confirm traces appear for the HTTP endpoints in this app
+- In Log Explorer, open one app log line and confirm it links to a trace after traffic has hit the service
 
 For incident review, add `version:<git-sha>` to the query so app and proxy logs line up with the deployed image tag.
 

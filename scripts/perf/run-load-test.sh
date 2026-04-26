@@ -129,6 +129,7 @@ docker rm -f "${PERF_APP_CONTAINER_NAME}" >/dev/null 2>&1 || true
 docker run -d \
   --name "${PERF_APP_CONTAINER_NAME}" \
   --network "${PERF_NETWORK}" \
+  -e DD_TRACE_ENABLED=false \
   -e INCIDENT_SIMULATION_ENABLED=false \
   "${PERF_IMAGE_REF}" >/dev/null
 

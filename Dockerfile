@@ -20,8 +20,13 @@ RUN ./mvnw -B -DskipTests package
 FROM eclipse-temurin:17-jre
 WORKDIR /app
 
+# Install the Datadog Java tracer into the runtime image.
+ADD https://dtdg.co/latest-java-tracer /opt/dd-java-agent.jar
+
 # Copy the built jar from the build stage
 COPY --from=build /workspace/target/*.jar app.jar
 
+ENV DD_TRACE_ENABLED=false
+
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+ENTRYPOINT ["java","-javaagent:/opt/dd-java-agent.jar","-jar","/app/app.jar"]
