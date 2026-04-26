@@ -11,6 +11,7 @@ set -euo pipefail
 : "${PROD_PORT:?PROD_PORT must be set}"
 : "${STABLE_TAG:?STABLE_TAG must be set}"
 : "${SIMULATE_POST_SWITCH_FAILURE:=false}"
+: "${ENABLE_INCIDENT_SIMULATION:=false}"
 : "${DATADOG_APP_SERVICE:=springboot-demo}"
 : "${DATADOG_PROXY_SERVICE:=springboot-demo-proxy}"
 
@@ -189,6 +190,7 @@ run_slot() {
     -e DD_ENV="prod" \
     -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
     -e DD_VERSION="${IMAGE_TAG}" \
+    -e INCIDENT_SIMULATION_ENABLED="${ENABLE_INCIDENT_SIMULATION}" \
     -l com.datadoghq.tags.env="prod" \
     -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
     -l com.datadoghq.tags.version="${IMAGE_TAG}" \
@@ -220,6 +222,7 @@ run_stable_fallback() {
     -e DD_ENV="prod" \
     -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
     -e DD_VERSION="${STABLE_TAG}" \
+    -e INCIDENT_SIMULATION_ENABLED="${ENABLE_INCIDENT_SIMULATION}" \
     -l com.datadoghq.tags.env="prod" \
     -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
     -l com.datadoghq.tags.version="${STABLE_TAG}" \
