@@ -1,0 +1,13 @@
+init_config:
+
+instances:
+  - name: springboot-demo-prod-health
+    url: http://springboot-demo-main-proxy:8080/actuator/health
+    timeout: 5
+    http_response_status_code: 200
+    collect_response_time: true
+    tags:
+      - env:prod
+      - service:springboot-demo
+      - component:proxy
+      - monitor:availability
