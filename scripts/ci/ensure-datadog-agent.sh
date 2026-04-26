@@ -34,6 +34,8 @@ docker run -d \
   -e DD_API_KEY="${DATADOG_API_KEY}" \
   -e DD_SITE="${DD_SITE}" \
   -e DD_HOSTNAME="$(hostname)" \
+  -e DD_APM_ENABLED=true \
+  -e DD_APM_NON_LOCAL_TRAFFIC=true \
   -e DD_LOGS_ENABLED=true \
   -e DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED=true \
   -e DD_PROCESS_CONFIG_CONTAINER_COLLECTION_ENABLED=true \

@@ -12,6 +12,8 @@ set -euo pipefail
 : "${STABLE_TAG:?STABLE_TAG must be set}"
 : "${SIMULATE_POST_SWITCH_FAILURE:=false}"
 : "${ENABLE_INCIDENT_SIMULATION:=false}"
+: "${DATADOG_AGENT_NAME:=springboot-demo-datadog-agent}"
+: "${DATADOG_TRACE_PORT:=8126}"
 : "${DATADOG_APP_SERVICE:=springboot-demo}"
 : "${DATADOG_PROXY_SERVICE:=springboot-demo-proxy}"
 
@@ -190,6 +192,10 @@ run_slot() {
     -e DD_ENV="prod" \
     -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
     -e DD_VERSION="${IMAGE_TAG}" \
+    -e DD_TRACE_ENABLED="true" \
+    -e DD_AGENT_HOST="${DATADOG_AGENT_NAME}" \
+    -e DD_TRACE_AGENT_PORT="${DATADOG_TRACE_PORT}" \
+    -e DD_LOGS_INJECTION="true" \
     -e INCIDENT_SIMULATION_ENABLED="${ENABLE_INCIDENT_SIMULATION}" \
     -l com.datadoghq.tags.env="prod" \
     -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
@@ -222,6 +228,10 @@ run_stable_fallback() {
     -e DD_ENV="prod" \
     -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
     -e DD_VERSION="${STABLE_TAG}" \
+    -e DD_TRACE_ENABLED="true" \
+    -e DD_AGENT_HOST="${DATADOG_AGENT_NAME}" \
+    -e DD_TRACE_AGENT_PORT="${DATADOG_TRACE_PORT}" \
+    -e DD_LOGS_INJECTION="true" \
     -e INCIDENT_SIMULATION_ENABLED="${ENABLE_INCIDENT_SIMULATION}" \
     -l com.datadoghq.tags.env="prod" \
     -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
