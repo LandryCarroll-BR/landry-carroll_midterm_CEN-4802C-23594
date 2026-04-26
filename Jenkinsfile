@@ -38,7 +38,8 @@ pipeline {
     DATADOG_AGENT_IMAGE = "gcr.io/datadoghq/agent:7"
     DATADOG_APP_SERVICE = "springboot-demo"
     DATADOG_PROXY_SERVICE = "springboot-demo-proxy"
-    PERF_ARTIFACT_DIR = "target/performance"
+    PERF_ARTIFACT_ROOT = "target/performance"
+    PERF_ARTIFACT_DIR = "target/performance/default"
     PERF_BASELINE_FILE = "performance/baseline.json"
     PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
@@ -101,6 +102,7 @@ pipeline {
 
           env.NORMALIZED_BRANCH = normalizedBranch ?: 'unknown'
           env.PERF_GATE_STATUS = '0'
+          env.PERF_ARTIFACT_DIR = "${env.PERF_ARTIFACT_ROOT}/${env.NORMALIZED_BRANCH}-${env.BUILD_NUMBER ?: env.IMAGE_TAG}"
 
           currentBuild.description = "${rawBranchName}:${env.IMAGE_TAG}"
           if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
@@ -113,6 +115,7 @@ pipeline {
             currentBuild.description = "${currentBuild.description} [incident-sim]"
           }
           echo "Using image tag ${env.IMAGE_TAG}"
+          echo "Performance artifacts will be written to ${env.PERF_ARTIFACT_DIR}"
         }
       }
     }
@@ -138,8 +141,10 @@ pipeline {
         expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
       }
       steps {
-        sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
-        sh 'scripts/perf/run-load-test.sh'
+        timeout(time: 3, unit: 'MINUTES') {
+          sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
+          sh 'scripts/perf/run-load-test.sh'
+        }
       }
     }
 
@@ -148,13 +153,17 @@ pipeline {
         expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
       }
       steps {
-        sh 'chmod +x scripts/perf/*.sh || true'
-        script {
-          int perfStatus = sh(returnStatus: true, script: 'scripts/perf/evaluate-baseline.sh')
-          env.PERF_GATE_STATUS = perfStatus.toString()
+        timeout(time: 1, unit: 'MINUTES') {
+          sh 'chmod +x scripts/perf/*.sh || true'
+          script {
+            echo "Evaluating baseline from ${env.PERF_BASELINE_FILE} using artifacts in ${env.PERF_ARTIFACT_DIR}"
+            int perfStatus = sh(returnStatus: true, script: 'scripts/perf/evaluate-baseline.sh')
+            env.PERF_GATE_STATUS = perfStatus.toString()
+            echo "Performance gate status: ${env.PERF_GATE_STATUS}"
 
-          if (perfStatus != 0) {
-            currentBuild.description = "${currentBuild.description} [perf-regression]"
+            if (perfStatus != 0) {
+              currentBuild.description = "${currentBuild.description} [perf-regression]"
+            }
           }
         }
       }
@@ -165,13 +174,15 @@ pipeline {
         expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
       }
       steps {
-        sh 'chmod +x scripts/perf/*.sh || true'
-        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-          withCredentials([
-            string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY'),
-            string(credentialsId: env.DD_SITE_CREDENTIALS_ID, variable: 'DD_SITE')
-          ]) {
-            sh 'scripts/perf/publish-datadog-metrics.sh'
+        timeout(time: 1, unit: 'MINUTES') {
+          sh 'chmod +x scripts/perf/*.sh || true'
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            withCredentials([
+              string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY'),
+              string(credentialsId: env.DD_SITE_CREDENTIALS_ID, variable: 'DD_SITE')
+            ]) {
+              sh 'scripts/perf/publish-datadog-metrics.sh'
+            }
           }
         }
       }
@@ -182,7 +193,10 @@ pipeline {
         expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
       }
       steps {
-        archiveArtifacts artifacts: "${env.PERF_ARTIFACT_DIR}/**/*", allowEmptyArchive: false
+        timeout(time: 1, unit: 'MINUTES') {
+          echo "Archiving performance artifacts from ${env.PERF_ARTIFACT_DIR}"
+          archiveArtifacts artifacts: "${env.PERF_ARTIFACT_DIR}/**/*", allowEmptyArchive: false
+        }
       }
     }
 
@@ -191,9 +205,12 @@ pipeline {
         expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
       }
       steps {
-        script {
-          if (env.PERF_GATE_STATUS != '0') {
-            error("Performance thresholds failed. Review ${env.PERF_ARTIFACT_DIR}/threshold-report.txt for details.")
+        timeout(time: 1, unit: 'MINUTES') {
+          script {
+            echo "Final performance gate status is ${env.PERF_GATE_STATUS}"
+            if (env.PERF_GATE_STATUS != '0') {
+              error("Performance thresholds failed. Review ${env.PERF_ARTIFACT_DIR}/threshold-report.txt for details.")
+            }
           }
         }
       }
