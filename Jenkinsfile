@@ -38,6 +38,7 @@ pipeline {
     DATADOG_AGENT_IMAGE = "gcr.io/datadoghq/agent:7"
     DATADOG_APP_SERVICE = "springboot-demo"
     DATADOG_PROXY_SERVICE = "springboot-demo-proxy"
+    DATADOG_TRACE_PORT = "8126"
     PERF_ARTIFACT_ROOT = "target/performance"
     PERF_ARTIFACT_DIR = "target/performance/default"
     PERF_BASELINE_FILE = "performance/baseline.json"
@@ -264,10 +265,15 @@ pipeline {
           # Run the staging version
           docker run -d \
             --name $STAGING_CONTAINER_NAME \
+            --network $PROD_NETWORK \
             -p $STAGING_PORT:8080 \
             -e DD_ENV=staging \
             -e DD_SERVICE=$DATADOG_APP_SERVICE \
             -e DD_VERSION=$IMAGE_TAG \
+            -e DD_TRACE_ENABLED=true \
+            -e DD_AGENT_HOST=$DATADOG_AGENT_NAME \
+            -e DD_TRACE_AGENT_PORT=$DATADOG_TRACE_PORT \
+            -e DD_LOGS_INJECTION=true \
             -e INCIDENT_SIMULATION_ENABLED=$ENABLE_INCIDENT_SIMULATION \
             -l com.datadoghq.tags.env=staging \
             -l com.datadoghq.tags.service=$DATADOG_APP_SERVICE \
