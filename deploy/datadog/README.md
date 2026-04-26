@@ -33,6 +33,13 @@ Create these assets in Datadog after the first successful deployment:
   - `service:springboot-demo env:staging`
   - `service:springboot-demo-proxy env:prod`
 
+- Metric monitors for CI performance regressions on `main`:
+  - Use the current values from [performance/baseline.json](/Users/landry_local/Documents/School/CEN-4802C-23594/landry-carroll_midterm_CEN-4802C-23594/performance/baseline.json) when creating these monitors.
+  - `max(last_15m):max:ci.performance.http_req_duration_p95_ms{service:springboot-demo,env:ci,branch:main} > 7.46`
+  - `max(last_15m):max:ci.performance.http_req_failed_rate{service:springboot-demo,env:ci,branch:main} > 0`
+  - `min(last_15m):min:ci.performance.http_reqs_per_second{service:springboot-demo,env:ci,branch:main} < 10.42`
+  - Route these monitors to the same notification destination already used for your crash and availability alerts.
+
 For incident review, add `version:<git-sha>` to the query so app and proxy logs line up with the deployed image tag.
 
 ## Crash Simulation

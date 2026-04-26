@@ -38,6 +38,8 @@ pipeline {
     DATADOG_AGENT_IMAGE = "gcr.io/datadoghq/agent:7"
     DATADOG_APP_SERVICE = "springboot-demo"
     DATADOG_PROXY_SERVICE = "springboot-demo-proxy"
+    PERF_ARTIFACT_DIR = "target/performance"
+    PERF_BASELINE_FILE = "performance/baseline.json"
     PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
 
@@ -83,12 +85,6 @@ pipeline {
     }
 
     stage('Prepare Build Metadata') {
-      when {
-        anyOf {
-          branch 'main'
-          branch 'staging'
-        }
-      }
       steps {
         script {
           if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
@@ -96,7 +92,17 @@ pipeline {
           } else {
             env.IMAGE_TAG = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
           }
-          currentBuild.description = "${env.BRANCH_NAME}:${env.IMAGE_TAG}"
+          def rawBranchName = env.BRANCH_NAME ?: sh(returnStdout: true, script: "git rev-parse --abbrev-ref HEAD").trim()
+          def normalizedBranch = rawBranchName
+            .toLowerCase()
+            .replaceAll(/[^a-z0-9]+/, '-')
+            .replaceAll(/^-+/, '')
+            .replaceAll(/-+$/, '')
+
+          env.NORMALIZED_BRANCH = normalizedBranch ?: 'unknown'
+          env.PERF_GATE_STATUS = '0'
+
+          currentBuild.description = "${rawBranchName}:${env.IMAGE_TAG}"
           if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
             currentBuild.description = "${currentBuild.description} [manual-rollback]"
           }
@@ -111,6 +117,88 @@ pipeline {
       }
     }
 
+    stage('Build Local Performance Image') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
+        sh '''
+          docker build -t $IMAGE_NAME:$IMAGE_TAG .
+
+          if [ "$BRANCH_NAME" = "main" ]; then
+            docker tag $IMAGE_NAME:$IMAGE_TAG $DOCKERHUB_REPO:$IMAGE_TAG
+          fi
+        '''
+      }
+    }
+
+    stage('Run Lightweight Load Test') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
+        sh 'scripts/perf/run-load-test.sh'
+      }
+    }
+
+    stage('Evaluate Performance Baseline') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        sh 'chmod +x scripts/perf/*.sh || true'
+        script {
+          int perfStatus = sh(returnStatus: true, script: 'scripts/perf/evaluate-baseline.sh')
+          env.PERF_GATE_STATUS = perfStatus.toString()
+
+          if (perfStatus != 0) {
+            currentBuild.description = "${currentBuild.description} [perf-regression]"
+          }
+        }
+      }
+    }
+
+    stage('Publish Performance Metrics to Datadog') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        sh 'chmod +x scripts/perf/*.sh || true'
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          withCredentials([
+            string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY'),
+            string(credentialsId: env.DD_SITE_CREDENTIALS_ID, variable: 'DD_SITE')
+          ]) {
+            sh 'scripts/perf/publish-datadog-metrics.sh'
+          }
+        }
+      }
+    }
+
+    stage('Archive Performance Artifacts') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        archiveArtifacts artifacts: "${env.PERF_ARTIFACT_DIR}/**/*", allowEmptyArchive: false
+      }
+    }
+
+    stage('Enforce Performance Gate') {
+      when {
+        expression { !(env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) }
+      }
+      steps {
+        script {
+          if (env.PERF_GATE_STATUS != '0') {
+            error("Performance thresholds failed. Review ${env.PERF_ARTIFACT_DIR}/threshold-report.txt for details.")
+          }
+        }
+      }
+    }
+
     stage('Ensure Datadog Agent') {
       when {
         anyOf {
@@ -119,35 +207,13 @@ pipeline {
         }
       }
       steps {
-        sh 'chmod +x scripts/ci/*.sh || true'
+        sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
         withCredentials([
           string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY'),
           string(credentialsId: env.DD_SITE_CREDENTIALS_ID, variable: 'DD_SITE')
         ]) {
           sh 'scripts/ci/ensure-datadog-agent.sh'
         }
-      }
-    }
-
-    stage('Build Docker Image') {
-      when {
-        anyOf {
-          allOf {
-            branch 'main'
-            expression { !params.DEPLOY_TAG?.trim() }
-          }
-          branch 'staging'
-        }
-      }
-      steps {
-        sh 'chmod +x scripts/ci/*.sh || true'
-        sh '''
-          if [ "$BRANCH_NAME" = "main" ]; then
-            docker build -t $IMAGE_NAME:$IMAGE_TAG -t $DOCKERHUB_REPO:$IMAGE_TAG .
-          else
-            docker build -t $IMAGE_NAME:$IMAGE_TAG .
-          fi
-        '''
       }
     }
 
@@ -204,7 +270,7 @@ pipeline {
         branch 'main'
       }
       steps {
-        sh 'chmod +x scripts/ci/*.sh || true'
+        sh 'chmod +x scripts/ci/*.sh scripts/perf/*.sh || true'
         withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS_ID, usernameVariable: 'DOCKERHUB_USERNAME', passwordVariable: 'DOCKERHUB_PASSWORD')]) {
           sh '''
             set +x
