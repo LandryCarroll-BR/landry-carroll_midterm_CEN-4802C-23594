@@ -11,6 +11,8 @@ set -euo pipefail
 : "${PROD_PORT:?PROD_PORT must be set}"
 : "${STABLE_TAG:?STABLE_TAG must be set}"
 : "${SIMULATE_POST_SWITCH_FAILURE:=false}"
+: "${DATADOG_APP_SERVICE:=springboot-demo}"
+: "${DATADOG_PROXY_SERVICE:=springboot-demo-proxy}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -42,6 +44,18 @@ slot_name() {
 
 container_running() {
   docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null | grep -qx 'true'
+}
+
+container_label() {
+  docker inspect -f "{{ index .Config.Labels \"$2\" }}" "$1" 2>/dev/null || true
+}
+
+app_logs_label() {
+  printf '[{"source":"java","service":"%s"}]' "${DATADOG_APP_SERVICE}"
+}
+
+proxy_logs_label() {
+  printf '[{"source":"nginx","service":"%s"}]' "${DATADOG_PROXY_SERVICE}"
 }
 
 wait_for_internal_health() {
@@ -100,6 +114,7 @@ ensure_network() {
 
 proxy_needs_recreate() {
   local mounts
+  local proxy_version
 
   mounts="$(docker inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "${PROD_PROXY_NAME}" 2>/dev/null || true)"
   if ! grep -qx '/etc/nginx/local' <<<"${mounts}"; then
@@ -109,6 +124,10 @@ proxy_needs_recreate() {
     return 0
   fi
   if ! container_running "${PROD_PROXY_NAME}"; then
+    return 0
+  fi
+  proxy_version="$(container_label "${PROD_PROXY_NAME}" "com.datadoghq.tags.version")"
+  if [ "${proxy_version}" != "${IMAGE_TAG}" ]; then
     return 0
   fi
 
@@ -123,6 +142,8 @@ remove_legacy_main_container() {
 }
 
 ensure_proxy() {
+  local logs_label
+
   if docker inspect "${PROD_PROXY_NAME}" >/dev/null 2>&1; then
     if proxy_needs_recreate; then
       log "Recreating proxy container ${PROD_PROXY_NAME} to refresh mounts and config"
@@ -133,10 +154,15 @@ ensure_proxy() {
   fi
 
   log "Creating proxy container ${PROD_PROXY_NAME}"
+  logs_label="$(proxy_logs_label)"
   docker run -d \
     --name "${PROD_PROXY_NAME}" \
     --network "${PROD_NETWORK}" \
     -p "${PROD_PORT}:8080" \
+    -l com.datadoghq.tags.env="prod" \
+    -l com.datadoghq.tags.service="${DATADOG_PROXY_SERVICE}" \
+    -l com.datadoghq.tags.version="${IMAGE_TAG}" \
+    -l com.datadoghq.ad.logs="${logs_label}" \
     -v "${DEFAULT_CONF}:/etc/nginx/conf.d/default.conf:ro" \
     -v "${NGINX_DIR}:/etc/nginx/local:ro" \
     nginx:1.27-alpine >/dev/null
@@ -152,15 +178,28 @@ reload_proxy() {
 run_slot() {
   local slot="$1"
   local container_name
+  local logs_label
 
   container_name="$(slot_name "${slot}")"
+  logs_label="$(app_logs_label)"
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
-  docker run -d --name "${container_name}" --network "${PROD_NETWORK}" "${IMAGE_REF}" >/dev/null
+  docker run -d \
+    --name "${container_name}" \
+    --network "${PROD_NETWORK}" \
+    -e DD_ENV="prod" \
+    -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
+    -e DD_VERSION="${IMAGE_TAG}" \
+    -l com.datadoghq.tags.env="prod" \
+    -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
+    -l com.datadoghq.tags.version="${IMAGE_TAG}" \
+    -l com.datadoghq.ad.logs="${logs_label}" \
+    "${IMAGE_REF}" >/dev/null
 }
 
 run_stable_fallback() {
   local fallback_slot
   local fallback_name
+  local logs_label
 
   fallback_slot="blue"
   if [ "${CANDIDATE_SLOT}" = "blue" ]; then
@@ -173,8 +212,19 @@ run_stable_fallback() {
     log "No stable tag exists in Docker Hub yet, so registry-backed recovery is unavailable."
     return 1
   fi
+  logs_label="$(app_logs_label)"
   docker rm -f "${fallback_name}" >/dev/null 2>&1 || true
-  docker run -d --name "${fallback_name}" --network "${PROD_NETWORK}" "${DOCKERHUB_REPO}:${STABLE_TAG}" >/dev/null
+  docker run -d \
+    --name "${fallback_name}" \
+    --network "${PROD_NETWORK}" \
+    -e DD_ENV="prod" \
+    -e DD_SERVICE="${DATADOG_APP_SERVICE}" \
+    -e DD_VERSION="${STABLE_TAG}" \
+    -l com.datadoghq.tags.env="prod" \
+    -l com.datadoghq.tags.service="${DATADOG_APP_SERVICE}" \
+    -l com.datadoghq.tags.version="${STABLE_TAG}" \
+    -l com.datadoghq.ad.logs="${logs_label}" \
+    "${DOCKERHUB_REPO}:${STABLE_TAG}" >/dev/null
   wait_for_internal_health "${fallback_name}" 60
   write_upstream_for_slot "${fallback_slot}"
   ensure_proxy
