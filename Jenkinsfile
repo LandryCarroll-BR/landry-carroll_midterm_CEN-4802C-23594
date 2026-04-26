@@ -27,6 +27,12 @@ pipeline {
     PROD_GREEN_NAME = "springboot-demo-main-green"
     PROD_PORT = "9090"
     STABLE_TAG = "stable"
+    DATADOG_API_KEY_CREDENTIALS_ID = "DATADOG_API_KEY"
+    DD_SITE = "datadoghq.com"
+    DATADOG_AGENT_NAME = "springboot-demo-datadog-agent"
+    DATADOG_AGENT_IMAGE = "gcr.io/datadoghq/agent:7"
+    DATADOG_APP_SERVICE = "springboot-demo"
+    DATADOG_PROXY_SERVICE = "springboot-demo-proxy"
     PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${env.PATH}"
   }
 
@@ -97,6 +103,21 @@ pipeline {
       }
     }
 
+    stage('Ensure Datadog Agent') {
+      when {
+        anyOf {
+          branch 'main'
+          branch 'staging'
+        }
+      }
+      steps {
+        sh 'chmod +x scripts/ci/*.sh || true'
+        withCredentials([string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY')]) {
+          sh 'scripts/ci/ensure-datadog-agent.sh'
+        }
+      }
+    }
+
     stage('Build Docker Image') {
       when {
         anyOf {
@@ -141,11 +162,23 @@ pipeline {
       }
       steps {
         sh '''
+          APP_LOGS_LABEL='[{"source":"java","service":"'"$DATADOG_APP_SERVICE"'"}]'
+
           # Stop/remove existing container if it exists
           docker rm -f $STAGING_CONTAINER_NAME || true
 
           # Run the staging version
-          docker run -d --name $STAGING_CONTAINER_NAME -p $STAGING_PORT:8080 $IMAGE_NAME:$IMAGE_TAG
+          docker run -d \
+            --name $STAGING_CONTAINER_NAME \
+            -p $STAGING_PORT:8080 \
+            -e DD_ENV=staging \
+            -e DD_SERVICE=$DATADOG_APP_SERVICE \
+            -e DD_VERSION=$IMAGE_TAG \
+            -l com.datadoghq.tags.env=staging \
+            -l com.datadoghq.tags.service=$DATADOG_APP_SERVICE \
+            -l com.datadoghq.tags.version=$IMAGE_TAG \
+            -l com.datadoghq.ad.logs="$APP_LOGS_LABEL" \
+            $IMAGE_NAME:$IMAGE_TAG
 
           # Show running containers for demo visibility
           docker ps | head -n 20
