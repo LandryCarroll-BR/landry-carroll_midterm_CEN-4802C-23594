@@ -7,6 +7,11 @@ pipeline {
       defaultValue: false,
       description: 'Main only: fail after blue/green traffic switches to exercise automatic failback before updating the stable tag.'
     )
+    booleanParam(
+      name: 'ENABLE_INCIDENT_SIMULATION',
+      defaultValue: false,
+      description: 'Expose /simulate/error and /simulate/crash in deployed containers so you can trigger incident tests without breaking the build.'
+    )
     string(
       name: 'DEPLOY_TAG',
       defaultValue: '',
@@ -98,6 +103,9 @@ pipeline {
           if (params.SIMULATE_POST_SWITCH_FAILURE && env.BRANCH_NAME == 'main') {
             currentBuild.description = "${currentBuild.description} [simulate-failback]"
           }
+          if (params.ENABLE_INCIDENT_SIMULATION) {
+            currentBuild.description = "${currentBuild.description} [incident-sim]"
+          }
           echo "Using image tag ${env.IMAGE_TAG}"
         }
       }
@@ -177,6 +185,7 @@ pipeline {
             -e DD_ENV=staging \
             -e DD_SERVICE=$DATADOG_APP_SERVICE \
             -e DD_VERSION=$IMAGE_TAG \
+            -e INCIDENT_SIMULATION_ENABLED=$ENABLE_INCIDENT_SIMULATION \
             -l com.datadoghq.tags.env=staging \
             -l com.datadoghq.tags.service=$DATADOG_APP_SERVICE \
             -l com.datadoghq.tags.version=$IMAGE_TAG \
