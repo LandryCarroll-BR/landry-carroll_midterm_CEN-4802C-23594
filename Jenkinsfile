@@ -28,7 +28,7 @@ pipeline {
     PROD_PORT = "9090"
     STABLE_TAG = "stable"
     DATADOG_API_KEY_CREDENTIALS_ID = "DATADOG_API_KEY"
-    DD_SITE = "datadoghq.com"
+    DD_SITE_CREDENTIALS_ID = "DD_SITE"
     DATADOG_AGENT_NAME = "springboot-demo-datadog-agent"
     DATADOG_AGENT_IMAGE = "gcr.io/datadoghq/agent:7"
     DATADOG_APP_SERVICE = "springboot-demo"
@@ -112,7 +112,10 @@ pipeline {
       }
       steps {
         sh 'chmod +x scripts/ci/*.sh || true'
-        withCredentials([string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY')]) {
+        withCredentials([
+          string(credentialsId: env.DATADOG_API_KEY_CREDENTIALS_ID, variable: 'DATADOG_API_KEY'),
+          string(credentialsId: env.DD_SITE_CREDENTIALS_ID, variable: 'DD_SITE')
+        ]) {
           sh 'scripts/ci/ensure-datadog-agent.sh'
         }
       }
