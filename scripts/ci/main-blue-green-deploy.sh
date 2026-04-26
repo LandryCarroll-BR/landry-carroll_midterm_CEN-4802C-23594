@@ -98,6 +98,23 @@ ensure_network() {
   fi
 }
 
+proxy_needs_recreate() {
+  local mounts
+
+  mounts="$(docker inspect -f '{{range .Mounts}}{{println .Destination}}{{end}}' "${PROD_PROXY_NAME}" 2>/dev/null || true)"
+  if ! grep -qx '/etc/nginx/local' <<<"${mounts}"; then
+    return 0
+  fi
+  if grep -qx '/etc/nginx/conf.d/upstream.conf' <<<"${mounts}"; then
+    return 0
+  fi
+  if ! container_running "${PROD_PROXY_NAME}"; then
+    return 0
+  fi
+
+  return 1
+}
+
 remove_legacy_main_container() {
   if docker inspect "${LEGACY_MAIN_CONTAINER_NAME}" >/dev/null 2>&1; then
     log "Removing legacy main container ${LEGACY_MAIN_CONTAINER_NAME} to free port ${PROD_PORT}"
@@ -107,20 +124,22 @@ remove_legacy_main_container() {
 
 ensure_proxy() {
   if docker inspect "${PROD_PROXY_NAME}" >/dev/null 2>&1; then
-    if ! container_running "${PROD_PROXY_NAME}"; then
-      log "Starting existing proxy container ${PROD_PROXY_NAME}"
-      docker start "${PROD_PROXY_NAME}" >/dev/null
+    if proxy_needs_recreate; then
+      log "Recreating proxy container ${PROD_PROXY_NAME} to refresh mounts and config"
+      docker rm -f "${PROD_PROXY_NAME}" >/dev/null 2>&1 || true
+    else
+      return 0
     fi
-  else
-    log "Creating proxy container ${PROD_PROXY_NAME}"
-    docker run -d \
-      --name "${PROD_PROXY_NAME}" \
-      --network "${PROD_NETWORK}" \
-      -p "${PROD_PORT}:8080" \
-      -v "${DEFAULT_CONF}:/etc/nginx/conf.d/default.conf:ro" \
-      -v "${UPSTREAM_CONF}:/etc/nginx/conf.d/upstream.conf:ro" \
-      nginx:1.27-alpine >/dev/null
   fi
+
+  log "Creating proxy container ${PROD_PROXY_NAME}"
+  docker run -d \
+    --name "${PROD_PROXY_NAME}" \
+    --network "${PROD_NETWORK}" \
+    -p "${PROD_PORT}:8080" \
+    -v "${DEFAULT_CONF}:/etc/nginx/conf.d/default.conf:ro" \
+    -v "${NGINX_DIR}:/etc/nginx/local:ro" \
+    nginx:1.27-alpine >/dev/null
 }
 
 reload_proxy() {
@@ -150,7 +169,10 @@ run_stable_fallback() {
 
   fallback_name="$(slot_name "${fallback_slot}")"
   log "Pulling ${DOCKERHUB_REPO}:${STABLE_TAG} for registry-backed recovery"
-  docker pull "${DOCKERHUB_REPO}:${STABLE_TAG}" >/dev/null
+  if ! docker pull "${DOCKERHUB_REPO}:${STABLE_TAG}" >/dev/null 2>&1; then
+    log "No stable tag exists in Docker Hub yet, so registry-backed recovery is unavailable."
+    return 1
+  fi
   docker rm -f "${fallback_name}" >/dev/null 2>&1 || true
   docker run -d --name "${fallback_name}" --network "${PROD_NETWORK}" "${DOCKERHUB_REPO}:${STABLE_TAG}" >/dev/null
   wait_for_internal_health "${fallback_name}" 60
@@ -176,7 +198,9 @@ on_error() {
       reload_proxy
       wait_for_external_health 30 || true
     else
-      run_stable_fallback
+      if ! run_stable_fallback; then
+        log "Leaving traffic on the current slot because there is no previous healthy slot or stable image to recover to."
+      fi
     fi
   else
     log "Traffic was never switched. Existing production remains unchanged."
