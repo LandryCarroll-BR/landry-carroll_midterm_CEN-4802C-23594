@@ -5,7 +5,8 @@ This repo provisions the Datadog Agent from Jenkins before `staging` and `main` 
 ## Jenkins
 
 - Create a Secret Text credential with ID `DATADOG_API_KEY`.
-- If your Datadog site is not `datadoghq.com`, update `DD_SITE` in [Jenkinsfile](/Users/landry_local/Documents/School/CEN-4802C-23594/landry-carroll_midterm_CEN-4802C-23594/Jenkinsfile).
+- Create a Secret Text credential with ID `DD_SITE`.
+  Set it to your Datadog site value, for example `datadoghq.com`, `datadoghq.eu`, or `us3.datadoghq.com`.
 
 ## What Jenkins Boots
 
