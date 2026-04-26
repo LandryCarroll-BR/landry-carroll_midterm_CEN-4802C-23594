@@ -9,6 +9,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -33,5 +34,17 @@ class LandryCarrollMidtermCen4802C23594ApplicationTests {
         mockMvc.perform(get("/actuator/health"))
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("UP"));
+    }
+
+    @Test
+    void incidentSimulationErrorIsDisabledByDefault() throws Exception {
+        mockMvc.perform(post("/simulate/error"))
+            .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void incidentSimulationCrashIsDisabledByDefault() throws Exception {
+        mockMvc.perform(post("/simulate/crash"))
+            .andExpect(status().isNotFound());
     }
 }

@@ -34,3 +34,13 @@ Create these assets in Datadog after the first successful deployment:
   - `service:springboot-demo-proxy env:prod`
 
 For incident review, add `version:<git-sha>` to the query so app and proxy logs line up with the deployed image tag.
+
+## Crash Simulation
+
+- Jenkins now exposes a boolean parameter named `ENABLE_INCIDENT_SIMULATION`.
+- When it is `true`, deployed app containers expose:
+  - `POST /simulate/error` to generate a logged 500 error
+  - `POST /simulate/crash` to halt the JVM after a short delay
+- When it is `false`, both endpoints return `404`.
+
+Use this to trigger Datadog alerts without introducing compile-time or startup failures into the build itself.
