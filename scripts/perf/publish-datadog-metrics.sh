@@ -13,6 +13,8 @@ PERF_BRANCH_NAME="${PERF_BRANCH_NAME:-${NORMALIZED_BRANCH:-${BRANCH_NAME:-unknow
 PERF_GIT_SHA="${PERF_GIT_SHA:-${IMAGE_TAG:-unknown}}"
 PERF_BUILD_NUMBER="${PERF_BUILD_NUMBER:-${BUILD_NUMBER:-local}}"
 PERF_SERVICE="${PERF_SERVICE:-springboot-demo}"
+DATADOG_CONNECT_TIMEOUT_SECONDS="${DATADOG_CONNECT_TIMEOUT_SECONDS:-10}"
+DATADOG_MAX_TIME_SECONDS="${DATADOG_MAX_TIME_SECONDS:-20}"
 
 case "${DD_SITE}" in
   api.*)
@@ -22,6 +24,8 @@ case "${DD_SITE}" in
     DATADOG_API_BASE="https://api.${DD_SITE}"
     ;;
 esac
+
+echo "Preparing Datadog performance metrics payload from ${PERF_ARTIFACT_DIR}"
 
 python3 - "${PERF_SUMMARY_JSON}" "${PERF_PROFILE_JSON}" "${PERF_EVALUATION_JSON}" "${PERF_PAYLOAD_JSON}" "${PERF_SERVICE}" "${PERF_BRANCH_NAME}" "${PERF_GIT_SHA}" "${PERF_BUILD_NUMBER}" <<'PY'
 import json
@@ -70,8 +74,14 @@ payload_path.write_text(json.dumps({"series": series}, indent=2) + "\n")
 PY
 
 curl -fsS \
+  --connect-timeout "${DATADOG_CONNECT_TIMEOUT_SECONDS}" \
+  --max-time "${DATADOG_MAX_TIME_SECONDS}" \
+  --retry 2 \
+  --retry-delay 2 \
   -H "Content-Type: application/json" \
   -H "DD-API-KEY: ${DATADOG_API_KEY}" \
   -X POST \
   "${DATADOG_API_BASE}/api/v1/series" \
   -d @"${PERF_PAYLOAD_JSON}" >/dev/null
+
+echo "Published performance metrics to Datadog for branch ${PERF_BRANCH_NAME}"
