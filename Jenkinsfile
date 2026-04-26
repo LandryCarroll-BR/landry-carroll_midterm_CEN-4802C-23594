@@ -1,6 +1,13 @@
 pipeline {
   agent any
   options { timestamps() }
+  parameters {
+    booleanParam(
+      name: 'SIMULATE_POST_SWITCH_FAILURE',
+      defaultValue: false,
+      description: 'Main only: fail after blue/green traffic switches to exercise automatic failback before updating the stable tag.'
+    )
+  }
 
   environment {
     IMAGE_NAME = "springboot-demo"
@@ -58,6 +65,9 @@ pipeline {
         script {
           env.IMAGE_TAG = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
           currentBuild.description = "${env.BRANCH_NAME}:${env.IMAGE_TAG}"
+          if (params.SIMULATE_POST_SWITCH_FAILURE && env.BRANCH_NAME == 'main') {
+            currentBuild.description = "${currentBuild.description} [simulate-failback]"
+          }
           echo "Using image tag ${env.IMAGE_TAG}"
         }
       }

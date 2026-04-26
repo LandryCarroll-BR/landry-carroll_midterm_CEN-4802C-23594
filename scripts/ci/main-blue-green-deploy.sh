@@ -10,6 +10,7 @@ set -euo pipefail
 : "${PROD_GREEN_NAME:?PROD_GREEN_NAME must be set}"
 : "${PROD_PORT:?PROD_PORT must be set}"
 : "${STABLE_TAG:?STABLE_TAG must be set}"
+: "${SIMULATE_POST_SWITCH_FAILURE:=false}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -220,6 +221,11 @@ reload_proxy
 SWITCHED=1
 
 wait_for_external_health 30
+
+if [ "${SIMULATE_POST_SWITCH_FAILURE}" = "true" ]; then
+  log "Simulating post-switch failure before stable tag update."
+  exit 1
+fi
 
 log "Production switch succeeded. Updating Docker Hub stable tag."
 docker tag "${IMAGE_REF}" "${DOCKERHUB_REPO}:${STABLE_TAG}"
