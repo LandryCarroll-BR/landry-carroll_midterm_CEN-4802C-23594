@@ -7,6 +7,11 @@ pipeline {
       defaultValue: false,
       description: 'Main only: fail after blue/green traffic switches to exercise automatic failback before updating the stable tag.'
     )
+    string(
+      name: 'DEPLOY_TAG',
+      defaultValue: '',
+      description: 'Main only: deploy an existing Docker Hub tag for manual rollback instead of the current commit SHA.'
+    )
   }
 
   environment {
@@ -44,12 +49,24 @@ pipeline {
 
     stage('Test (JUnit)') {
       steps {
-        sh 'chmod +x mvnw || true'
-        sh './mvnw -B test'
+        script {
+          if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
+            echo "Skipping tests for manual rollback to Docker Hub tag ${params.DEPLOY_TAG}."
+          } else {
+            sh 'chmod +x mvnw || true'
+            sh './mvnw -B test'
+          }
+        }
       }
       post {
         always {
-          junit 'target/surefire-reports/*.xml'
+          script {
+            if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
+              echo "No fresh JUnit results for manual rollback runs."
+            } else {
+              junit 'target/surefire-reports/*.xml'
+            }
+          }
         }
       }
     }
@@ -63,8 +80,15 @@ pipeline {
       }
       steps {
         script {
-          env.IMAGE_TAG = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+          if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
+            env.IMAGE_TAG = params.DEPLOY_TAG.trim()
+          } else {
+            env.IMAGE_TAG = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
+          }
           currentBuild.description = "${env.BRANCH_NAME}:${env.IMAGE_TAG}"
+          if (env.BRANCH_NAME == 'main' && params.DEPLOY_TAG?.trim()) {
+            currentBuild.description = "${currentBuild.description} [manual-rollback]"
+          }
           if (params.SIMULATE_POST_SWITCH_FAILURE && env.BRANCH_NAME == 'main') {
             currentBuild.description = "${currentBuild.description} [simulate-failback]"
           }
@@ -76,7 +100,10 @@ pipeline {
     stage('Build Docker Image') {
       when {
         anyOf {
-          branch 'main'
+          allOf {
+            branch 'main'
+            expression { !params.DEPLOY_TAG?.trim() }
+          }
           branch 'staging'
         }
       }
@@ -100,6 +127,9 @@ pipeline {
         script {
           if (env.DOCKERHUB_REPO == 'your-dockerhub-namespace/springboot-demo') {
             error("Update DOCKERHUB_REPO in Jenkinsfile to your real Docker Hub repository before running main deployments.")
+          }
+          if (params.DEPLOY_TAG?.trim()) {
+            echo "Manual rollback deploy requested for Docker Hub tag ${params.DEPLOY_TAG}."
           }
         }
       }
@@ -135,7 +165,11 @@ pipeline {
             set +x
             trap 'docker logout || true' EXIT
             echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-            docker push $DOCKERHUB_REPO:$IMAGE_TAG
+            if [ -z "${DEPLOY_TAG}" ]; then
+              docker push $DOCKERHUB_REPO:$IMAGE_TAG
+            else
+              echo "Using existing Docker Hub tag $DEPLOY_TAG for manual rollback."
+            fi
             scripts/ci/main-blue-green-deploy.sh
           '''
         }
